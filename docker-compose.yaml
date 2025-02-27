@@ -1,0 +1,147 @@
+version: '3.9'
+
+volumes:
+  postgres_data:
+    driver: local
+
+services:
+
+  postgres-keycloak:
+    container_name: postgres-keycloak
+    image: postgres:11
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - 5434:5432
+    networks:
+      - kafka-network
+
+
+
+  keycloak:
+    container_name: keycloak
+    image: quay.io/keycloak/keycloak:24.0.2
+    entrypoint: /opt/keycloak/bin/kc.sh start-dev -Dkeycloak.profile.feature.upload_scripts=enabled
+    environment:
+      KC_DB: postgres
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+      KC_DB_SCHEMA: public
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_URL_PORT: 5432
+      KC_DB_URL_HOST: postgres-keycloak
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Uncomment the line below if you want to specify JDBC parameters. The parameter below is just an example, and it shouldn't be used in production without knowledge. It is highly recommended that you read the PostgreSQL JDBC driver documentation in order to use it.
+      #JDBC_PARAMS: "ssl=true"
+    ports:
+      - 8090:8080
+    depends_on:
+      - postgres-keycloak
+    networks:
+      - kafka-network
+
+
+  postgres:
+    image: postgres
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: amine
+      POSTGRES_DB: enco
+    volumes:
+      - C:\Users\HP\Desktop\Stage_Pfe\New\postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5433"
+    networks:
+      - kafka-network
+
+  pgadmin:
+    container_name: pgadmin
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: root
+    ports:
+      - "5050:80"
+    networks:
+      - kafka-network
+
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 22181:2181
+    networks:
+      - kafka-network
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - 29092:29092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - kafka-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      - kafka
+    ports:
+      - 8080:8080
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    networks:
+      - kafka-network
+
+  masterdata-app:
+    image: masterdata-app:latest
+    container_name: masterdata-app
+    ports:
+      - '8081:8081'
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/enco
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: amine
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://host.docker.internal:8090/realms/ec
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://host.docker.internal:8090/realms/ec/protocol/openid-connect/certs
+      KAFKA_BROKER: kafka:9092
+    depends_on:
+      - postgres
+      - kafka
+      - keycloak
+    networks:
+      - kafka-network
+  masterdata-front:
+    image: masterdata-frontend:latest
+    container_name: masterdata-front
+    ports:
+      - '80:80'
+    depends_on:
+      - masterdata-app
+      - keycloak
+    networks:
+      - kafka-network
+
+networks:
+  kafka-network:
+    external:
+      name: kafka-network
+
